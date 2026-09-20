@@ -62,8 +62,34 @@ class LLVM_ABI LoadStoreVec final : public RegionPass {
   /// or nullptr if \p Loads are not a vectorizable.
   LoadInst *createVectorLoad(BndlRef<Instruction *> Loads);
 
-  /// Builds a ConstantVector from per-lane constant store operands in \p
-  /// Constants. \returns the packed ConstantVector.
+  /// Reinterprets \p C as type \p DestTy without changing its bits, e.g.,
+  /// float 1.0 to i32 0x3f800000, or a null pointer to i64 0.
+  ///
+  /// If \p C already has type \p DestTy, it is returned unchanged. Otherwise
+  /// the value is converted through an integer of the same width: non-integer
+  /// sources are first converted with bitcast (or ptrtoint for pointers), and
+  /// non-integer destinations are then produced with bitcast (or inttoptr for
+  /// pointers). The result may therefore be a ConstantExpr when \p C is not a
+  /// plain literal, e.g., a global's address.
+  ///
+  /// A pointer in a non-integral address space has no fixed ptrtoint/inttoptr
+  /// width, so \p DestTy must not be such a pointer.
+  Constant *getEquivalentConstantWithType(Constant *C, Type *DestTy);
+
+  /// Packs \p Constants into a single constant vector of type <N x LaneTy>.
+  ///
+  /// LaneTy is the element type of the result, as chosen by
+  /// VecUtils::getCombinedVectorTypeFor(). Constants that are themselves
+  /// vectors or aggregates are first flattened into their scalar elements
+  /// (TODO: nested aggregates are not flattened yet). Each element is then
+  /// converted to LaneTy: same-width elements are bitcast (e.g., float 1.0
+  /// to i32 0x3f800000), and elements wider than LaneTy are sliced into
+  /// LaneTy-sized pieces in memory order.
+  ///
+  /// \returns the packed constant vector, or nullptr if some constant cannot
+  /// be converted, e.g., a vector constant that is not yet flattened, or a
+  /// wide constant without a known bit pattern such as a ConstantExpr or a
+  /// global's address.
   Constant *createConstantVector(BndlRef<Constant *> Constants);
 
   /// Vectorizes \p Stores and their operands if constants or consecutive
