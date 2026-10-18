@@ -45,6 +45,11 @@ def XorIntAttrs : NativeCodeCall<"xorIntegerAttrs($_builder, $0, $1, $2)">;
 // Merge overflow flags from 2 ops, selecting the most conservative combination.
 def MergeOverflow : NativeCodeCall<"mergeOverflowFlags($0, $1)">;
 
+// Drop the signed no-wrap flag.
+def DropNSW : NativeCodeCall<
+    "IntegerOverflowFlagsAttr::get($_builder.getContext(), "
+    "$0.getValue() & ~IntegerOverflowFlags::nsw)">;
+
 // Default overflow flag (all wraparounds allowed).
 defvar DefOverflow = ConstantEnumCase<Arith_IntegerOverflowAttr, "none">;
 
@@ -486,10 +491,15 @@ def TruncIExtUIToExtUI :
          (ValueWiderThan $tr, $x)]>;
 
 // trunci(shrsi(x, c)) -> trunci(shrui(x, c))
+// Drop nsw because the zero-filled bits may differ from the truncated result's
+// sign bit. These bits satisfy nuw, and exact is unaffected.
 def TruncIShrSIToTrunciShrUI :
     Pat<(Arith_TruncIOp:$tr
-          (Arith_ShRSIOp $x, (ConstantLikeMatcher TypedAttrInterface:$c0), $exact), $overflow),
-        (Arith_TruncIOp (Arith_ShRUIOp $x, (Arith_ConstantOp (cast<"TypedAttr"> $c0)), $exact), $overflow),
+          (Arith_ShRSIOp $x, (ConstantLikeMatcher TypedAttrInterface:$c0), $exact),
+          $overflow),
+        (Arith_TruncIOp
+          (Arith_ShRUIOp $x, (Arith_ConstantOp (cast<"TypedAttr"> $c0)), $exact),
+          (DropNSW $overflow)),
         [(TruncationMatchesShiftAmount $x, $tr, $c0)]>;
 
 //===----------------------------------------------------------------------===//
